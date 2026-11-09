@@ -18,6 +18,10 @@ $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
 $env:DEPOT_TOOLS_UPDATE = '0'
 $env:GYP_MSVS_VERSION = '2022'
 $env:PYTHONUTF8 = '1'
+# Pinning disables depot_tools self-update, not its Python/CIPD bootstrap.
+# gclient may otherwise find a runner-provided vpython while GN's Python shim
+# remains uninitialised (python3_bin_reldir.txt missing).
+Run "$root/build/depot_tools/bootstrap/win_tools.bat" @()
 # .gclient is rewritten rather than appending target_os on each invocation.
 @"
 solutions = [{
@@ -52,7 +56,7 @@ if (Test-Path "$root/discourse-build/core-patches") {
 }
 Set-Location "$root/build"
 $gnArgs = 'is_debug=false is_clang=true target_cpu="x64" use_custom_libcxx=false rtc_libvpx_build_vp9=true enable_libaom=true rtc_include_tests=true rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=true ffmpeg_branding="Chrome" rtc_use_h265=true symbol_level=0 enable_iterator_debugging=false'
-Run gn.bat @('gen', 'src/out-x64-release', '--root=src', "--args=$gnArgs")
+Run "$root/build/src/buildtools/win/gn.exe" @('gen', 'src/out-x64-release', '--root=src', "--args=$gnArgs")
 Run ninja.exe @('-C', 'src/out-x64-release', 'libwebrtc', 'libwebrtc_cpp_api_unittests')
 Run "$root/build/src/out-x64-release/libwebrtc_cpp_api_unittests.exe" @()
 $artifacts = "$root/build/libwebrtc-x64-release"
