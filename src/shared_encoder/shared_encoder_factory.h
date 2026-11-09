@@ -1,6 +1,10 @@
 // VideoEncoderFactory wrapper: everything goes to the wrapped factory except
-// H.264 High level 5.1/5.2, which is the shared NVENC passthrough. Those
-// formats are advertised only when a real NVENC session can open.
+// H.264 High level 5.1/5.2. Those formats are listed (last) whenever the
+// wrapped factory has an H.264 encoder, so every peer can negotiate them
+// whether or not it has NVENC. With a working NVENC session (probed lazily,
+// when such an encoder is created) the encoder is the shared passthrough that
+// still sends camera frames to the software encoder; without NVENC it is the
+// stock software encoder itself.
 #ifndef DISCOURSE_SHARED_ENCODER_SHARED_ENCODER_FACTORY_H_
 #define DISCOURSE_SHARED_ENCODER_SHARED_ENCODER_FACTORY_H_
 

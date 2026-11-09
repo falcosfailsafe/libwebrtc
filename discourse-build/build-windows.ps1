@@ -11,7 +11,10 @@ $root = (Get-Location).Path
 $source = Get-Content "$root/discourse-build/source.json" | ConvertFrom-Json
 New-Item -ItemType Directory -Force "$root/build" | Out-Null
 Set-Location "$root/build"
-Run git @('clone', 'https://chromium.googlesource.com/chromium/tools/depot_tools.git', 'depot_tools')
+$env:DEPOT_TOOLS_UPDATE = '0'
+if (-not (Test-Path 'depot_tools/.git')) {
+  Run git @('clone', 'https://chromium.googlesource.com/chromium/tools/depot_tools.git', 'depot_tools')
+}
 Run git @('-C', 'depot_tools', 'checkout', '--detach', $source.depot_tools_revision)
 $env:PATH = "$root/build/depot_tools;$env:PATH"
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
@@ -31,6 +34,11 @@ solutions = [{
 }]
 target_os = ['win']
 "@ | Set-Content -Encoding ascii .gclient
+# A restored checkout may contain our previous core patches. Reset tracked
+# files to the pinned commit before syncing/reapplying; retain fetched deps.
+if (Test-Path 'src/.git') {
+  Run git @('-C', 'src', 'reset', '--hard', $source.webrtc_revision)
+}
 Run gclient.bat @('sync', '--no-history', '--with_branch_heads', '--jobs=8')
 # The build fork's tip is not a Gerrit Change-Id commit. With shallow sync the
 # default lastchange filter finds nothing and writes epoch zero; Chromium then
@@ -45,6 +53,7 @@ Run git @('-C', 'src', 'rev-parse', 'HEAD')
 $actual = & git -C src rev-parse HEAD
 if ($actual.Trim() -ne $source.webrtc_revision) { throw 'Unexpected WebRTC revision' }
 $wrapper = "$root/build/src/libwebrtc"
+if (Test-Path $wrapper) { Remove-Item -Recurse -Force $wrapper }
 New-Item -ItemType Directory -Force $wrapper | Out-Null
 foreach ($entry in @('include', 'src', 'patches', 'test', 'BUILD.gn', 'LICENSE')) {
   Copy-Item -Recurse -Force "$root/$entry" $wrapper
@@ -85,6 +94,7 @@ if (Test-Path "$root/test/shared_encoder.test.cc") {
   Run "$root/build/src/out-x64-release/discourse_shared_encoder_unittests.exe" @()
 }
 $artifacts = "$root/build/libwebrtc-x64-release"
+if (Test-Path $artifacts) { Remove-Item -Recurse -Force $artifacts }
 New-Item -ItemType Directory -Force "$artifacts/lib", "$artifacts/include" | Out-Null
 Copy-Item 'src/out-x64-release/libwebrtc.dll', 'src/out-x64-release/libwebrtc.dll.lib' "$artifacts/lib"
 Copy-Item -Recurse -Force "$wrapper/include/*" "$artifacts/include"

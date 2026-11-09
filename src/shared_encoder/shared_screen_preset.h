@@ -24,11 +24,13 @@ struct SharedScreenPreset {
 // H.264 level_idc (e.g. 51, 52) the picture size and rate need, or 0 when no
 // level up to 5.2 can carry it.
 inline int RequiredH264LevelIdc(int width, int height, int frame_rate) {
+  if (width < 1 || height < 1 || frame_rate < 1) return 0;
   const int64_t mbs_per_frame =
-      static_cast<int64_t>((width + 15) / 16) * ((height + 15) / 16);
-  const int64_t mbs_per_second = mbs_per_frame * frame_rate;
+      ((static_cast<int64_t>(width) + 15) / 16) *
+      ((static_cast<int64_t>(height) + 15) / 16);
   // Levels 5.1 / 5.2 (Table A-1): MaxFS 36864, MaxMBPS 983040 / 2073600.
   if (mbs_per_frame > 36864) return 0;
+  const int64_t mbs_per_second = mbs_per_frame * frame_rate;
   if (mbs_per_second <= 983040) return 51;
   if (mbs_per_second <= 2073600) return 52;
   return 0;
@@ -82,6 +84,14 @@ struct SharedScreenRequest {
 inline std::string ResolvePreset(const SharedScreenRequest& r, int src_w,
                                  int src_h, SharedScreenPreset* out) {
   if (src_w < 2 || src_h < 2) return "source size unknown";
+  // Validate before narrowing or multiplying caller-controlled values.
+  if (r.frame_rate < 1 || r.frame_rate > 120) return "frame rate out of range";
+  if (r.bitrate_bps < 500000 || r.bitrate_bps > 400000000) {
+    return "bitrate out of range";
+  }
+  if (r.keyframe_interval_seconds < 1 || r.keyframe_interval_seconds > 10) {
+    return "keyframe interval out of range";
+  }
   if ((r.max_height > 0) == (r.source_scale > 0)) {
     return "exactly one of maxHeight and sourceScale is required";
   }

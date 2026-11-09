@@ -21,12 +21,25 @@ std::string Lower(std::string s) {
   return s;
 }
 
+// Any H.264 High (profile_idc 0x64) with packetization-mode 1, at any level or
+// constraint flags. We advertise only levels 5.1 and 5.2, but SDP negotiation
+// may pick a lower level of the same profile (level asymmetry is allowed), so
+// those must reach the same software/passthrough path rather than the wrapped
+// factory, which lists no High at all and would return null. Whether the
+// shared screen path is allowed is the Dart side's level check.
 bool IsSharedFormat(const webrtc::SdpVideoFormat& format) {
   if (Lower(format.name) != "h264") return false;
+  auto mode = format.parameters.find("packetization-mode");
+  if (mode == format.parameters.end() || mode->second != "1") return false;
   auto it = format.parameters.find("profile-level-id");
   if (it == format.parameters.end()) return false;
   const std::string id = Lower(it->second);
-  return id == "640033" || id == "640034";
+  return id.size() == 6 && id.compare(0, 2, "64") == 0;
+}
+
+// The encoder side takes no layering: no scalability mode, or plain L1T1.
+bool NoLayering(const std::optional<std::string>& scalability_mode) {
+  return !scalability_mode || *scalability_mode == "L1T1";
 }
 
 // A format the wrapped factory really lists, to build the H.264 codec behind a
@@ -59,11 +72,18 @@ class SharedEncoderFactory : public webrtc::VideoEncoderFactory {
  public:
   explicit SharedEncoderFactory(
       std::unique_ptr<webrtc::VideoEncoderFactory> inner)
-      : inner_(std::move(inner)) {}
+      : inner_(std::move(inner)),
+        has_h264_(HasH264Impl(inner_->GetSupportedFormats())) {}
 
+  // High 5.1/5.2 is a codec format any peer with a software H.264 encoder can
+  // negotiate, with or without NVENC: one transceiver carries camera and
+  // screen, and a receiver must be able to agree on High. Whether the shared
+  // NVENC source can run is a separate question, asked only when a shared
+  // source is created (StartSharedScreen), never when formats are listed. The
+  // formats go last, so the stock codec order is unchanged.
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override {
     auto formats = inner_->GetSupportedFormats();
-    if (GetEncoderCapabilities().available) {
+    if (has_h264_) {
       formats.push_back(SharedFormat("640033"));
       formats.push_back(SharedFormat("640034"));
     }
@@ -77,9 +97,8 @@ class SharedEncoderFactory : public webrtc::VideoEncoderFactory {
       const override {
     if (IsSharedFormat(format)) {
       CodecSupport support;
-      support.is_supported =
-          GetEncoderCapabilities().available && !scalability_mode;
-      support.is_power_efficient = support.is_supported;
+      support.is_supported = has_h264_ && NoLayering(scalability_mode);
+      support.is_power_efficient = false;  // no probe just to answer a query
       return support;
     }
     return inner_->QueryCodecSupport(format, scalability_mode, resolution);
@@ -88,21 +107,33 @@ class SharedEncoderFactory : public webrtc::VideoEncoderFactory {
   std::unique_ptr<webrtc::VideoEncoder> Create(
       const webrtc::Environment& env,
       const webrtc::SdpVideoFormat& format) override {
-    if (IsSharedFormat(format)) {
-      if (!GetEncoderCapabilities().available) return nullptr;
-      // Camera frames on the same sender use the wrapped factory's ordinary
-      // H.264 encoder (null if it has none: pixel frames then fail closed).
-      std::unique_ptr<webrtc::VideoEncoder> software;
-      if (auto stock = FindStockH264Format(inner_->GetSupportedFormats())) {
-        software = inner_->Create(env, *stock);
-      }
-      return std::make_unique<PassthroughVideoEncoder>(std::move(software));
+    if (!IsSharedFormat(format)) return inner_->Create(env, format);
+    if (!has_h264_) return nullptr;
+    // The software H.264 encoder behind this format: a format the wrapped
+    // factory really lists, never a hard-coded one.
+    std::unique_ptr<webrtc::VideoEncoder> software;
+    if (auto stock = FindStockH264Format(inner_->GetSupportedFormats())) {
+      software = inner_->Create(env, *stock);
     }
-    return inner_->Create(env, format);
+    // Without NVENC no shared-encode frame can exist: hand out the stock
+    // encoder itself, with no wrapper and nothing added to the pixel path.
+    if (!GetEncoderCapabilities().available) return software;
+    // With NVENC the sender may switch between camera (software) and a shared
+    // screen (passthrough); the wrapper routes each frame. Null software means
+    // pixel frames fail closed.
+    return std::make_unique<PassthroughVideoEncoder>(std::move(software));
   }
 
  private:
+  static bool HasH264Impl(const std::vector<webrtc::SdpVideoFormat>& formats) {
+    for (const auto& f : formats) {
+      if (Lower(f.name) == "h264") return true;
+    }
+    return false;
+  }
+
   std::unique_ptr<webrtc::VideoEncoderFactory> inner_;
+  const bool has_h264_;
 };
 
 bool HasH264(const std::vector<webrtc::SdpVideoFormat>& formats) {
