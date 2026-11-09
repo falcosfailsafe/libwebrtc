@@ -32,6 +32,15 @@ solutions = [{
 target_os = ['win']
 "@ | Set-Content -Encoding ascii .gclient
 Run gclient.bat @('sync', '--no-history', '--with_branch_heads', '--jobs=8')
+# The build fork's tip is not a Gerrit Change-Id commit. With shallow sync the
+# default lastchange filter finds nothing and writes epoch zero; Chromium then
+# derives a negative PE timestamp, which lld correctly rejects. Record the
+# actual pinned build dependency commit instead, without the Gerrit filter.
+Run python3 @('src/build/util/lastchange.py', '--source-dir', 'src/build', '--filter=', '-o', 'src/build/util/LASTCHANGE')
+$commitTime = [long](Get-Content 'src/build/util/LASTCHANGE.committime')
+if ($commitTime -le 0 -or $commitTime -gt [uint32]::MaxValue) {
+  throw 'Invalid pinned build dependency timestamp'
+}
 Run git @('-C', 'src', 'rev-parse', 'HEAD')
 $actual = & git -C src rev-parse HEAD
 if ($actual.Trim() -ne $source.webrtc_revision) { throw 'Unexpected WebRTC revision' }
@@ -57,8 +66,15 @@ if (Test-Path "$root/discourse-build/core-patches") {
 Set-Location "$root/build"
 $gnArgs = 'is_debug=false is_clang=true target_cpu="x64" use_custom_libcxx=false rtc_libvpx_build_vp9=true enable_libaom=true rtc_include_tests=true rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=true ffmpeg_branding="Chrome" rtc_use_h265=true symbol_level=0 enable_iterator_debugging=false'
 Run "$root/build/src/buildtools/win/gn.exe" @('gen', 'src/out-x64-release', '--root=src', "--args=$gnArgs")
-Run ninja.exe @('-C', 'src/out-x64-release', 'libwebrtc', 'libwebrtc_cpp_api_unittests')
+$targets = @('-C', 'src/out-x64-release', 'libwebrtc', 'libwebrtc_cpp_api_unittests')
+if (Test-Path "$root/test/shared_encoder.test.cc") {
+  $targets += 'discourse_shared_encoder_unittests'
+}
+Run ninja.exe $targets
 Run "$root/build/src/out-x64-release/libwebrtc_cpp_api_unittests.exe" @()
+if (Test-Path "$root/test/shared_encoder.test.cc") {
+  Run "$root/build/src/out-x64-release/discourse_shared_encoder_unittests.exe" @()
+}
 $artifacts = "$root/build/libwebrtc-x64-release"
 New-Item -ItemType Directory -Force "$artifacts/lib", "$artifacts/include" | Out-Null
 Copy-Item 'src/out-x64-release/libwebrtc.dll', 'src/out-x64-release/libwebrtc.dll.lib' "$artifacts/lib"

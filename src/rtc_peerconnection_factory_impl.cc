@@ -26,6 +26,9 @@
 #if defined(WEBRTC_IOS)
 #include "engine/sdk/objc/Framework/Classes/videotoolboxvideocodecfactory.h"
 #endif
+// Discourse: shared NVENC screen share passthrough (see
+// tool/libwebrtc/overlay/src/shared_encoder).
+#include "src/shared_encoder/shared_encoder_factory.h"
 #include <api/task_queue/default_task_queue_factory.h>
 
 namespace libwebrtc {
@@ -99,15 +102,22 @@ bool RTCPeerConnectionFactoryImpl::Initialize() {
         audio_device_module_, webrtc::CreateBuiltinAudioEncoderFactory(),
         webrtc::CreateBuiltinAudioDecoderFactory(),
 #if defined(USE_INTEL_MEDIA_SDK)
-        CreateIntelVideoEncoderFactory(), CreateIntelVideoDecoderFactory(),
+        discourse::shared_encoder::CreateSharedEncoderFactory(
+            CreateIntelVideoEncoderFactory()),
+        discourse::shared_encoder::CreateSharedDecoderFactory(
+            CreateIntelVideoDecoderFactory()),
 #elif defined(WEBRTC_WIN) && defined(RTC_ENABLE_H265)
-        webrtc::CreateWmfH265EncoderFactory(
-            webrtc::CreateBuiltinVideoEncoderFactory()),
-        webrtc::CreateWmfH265DecoderFactory(
-            webrtc::CreateBuiltinVideoDecoderFactory()),
+        discourse::shared_encoder::CreateSharedEncoderFactory(
+            webrtc::CreateWmfH265EncoderFactory(
+                webrtc::CreateBuiltinVideoEncoderFactory())),
+        discourse::shared_encoder::CreateSharedDecoderFactory(
+            webrtc::CreateWmfH265DecoderFactory(
+                webrtc::CreateBuiltinVideoDecoderFactory())),
 #else
-        webrtc::CreateBuiltinVideoEncoderFactory(),
-        webrtc::CreateBuiltinVideoDecoderFactory(),
+        discourse::shared_encoder::CreateSharedEncoderFactory(
+            webrtc::CreateBuiltinVideoEncoderFactory()),
+        discourse::shared_encoder::CreateSharedDecoderFactory(
+            webrtc::CreateBuiltinVideoDecoderFactory()),
 #endif
         nullptr, audio_processing_impl_->GetAudioProcessing(), nullptr,
         // The field trials configured through RTCFieldTrials, e.g. WARP's

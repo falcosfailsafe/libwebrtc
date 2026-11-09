@@ -172,7 +172,42 @@ rtc_shared_library("libwebrtc") {
     "src/rtc_video_track_impl.h",
     "src/rtc_logging.cc",
     "src/rtc_logging_impl.h",
+
+    # Discourse: shared NVENC screen share. The portable parts compile on
+    # every platform; only Windows gets a working pipeline.
+    "include/rtc_shared_screen.h",
+    "src/shared_encoder/h264_annexb.h",
+    "src/shared_encoder/keyframe_gate.h",
+    "src/shared_encoder/passthrough_core.h",
+    "src/shared_encoder/passthrough_video_encoder.cc",
+    "src/shared_encoder/passthrough_video_encoder.h",
+    "src/shared_encoder/rtc_shared_screen.cc",
+    "src/shared_encoder/shared_encoded_frame_buffer.h",
+    "src/shared_encoder/shared_encoder_factory.cc",
+    "src/shared_encoder/shared_encoder_factory.h",
+    "src/shared_encoder/shared_screen_pipeline.cc",
+    "src/shared_encoder/shared_screen_pipeline.h",
+    "src/shared_encoder/shared_screen_preset.h",
+    "src/shared_encoder/shared_screen_track_source.h",
   ]
+
+  include_dirs += [
+    "src/shared_encoder",
+    "src/shared_encoder/third_party/nv-codec-headers",
+  ]
+
+  if (is_win) {
+    sources += [
+      "src/shared_encoder/d3d11_capture.cc",
+      "src/shared_encoder/d3d11_capture.h",
+      "src/shared_encoder/nvenc_h264_encoder.cc",
+      "src/shared_encoder/nvenc_h264_encoder.h",
+    ]
+    libs += [
+      "d3d11.lib",
+      "dxgi.lib",
+    ]
+  }
 
   # intel media sdk
   if (is_win && libwebrtc_intel_media_sdk) {
@@ -279,7 +314,10 @@ rtc_shared_library("libwebrtc") {
     "../modules/audio_processing:api",
     "../modules/audio_processing:audio_processing",
     "../modules/video_capture:video_capture_module",
+    "../modules/video_coding:video_codec_interface",
     "../pc:libjingle_peerconnection",
+    "../pc:video_track_source",
+    "../media:video_broadcaster",
     "../rtc_base:threading",
     "../sdk:media_constraints",
     "//third_party/abseil-cpp/absl/memory",
@@ -346,4 +384,34 @@ rtc_test("libwebrtc_cpp_api_unittests") {
     "//test:test_support",
     "//test:test_main",
   ]
+}
+
+# Tests the real VideoEncoder adapter against this pinned libwebrtc API.
+# Deliberately builds the adapter into the executable rather than depending on
+# private (non-exported) C++ symbols from libwebrtc.dll.
+rtc_test("discourse_shared_encoder_unittests") {
+  testonly = true
+  include_dirs = [ ".", "src/shared_encoder" ]
+  sources = [
+    "test/shared_encoder.test.cc",
+    "src/shared_encoder/passthrough_video_encoder.cc",
+  ]
+  deps = [
+    "//api:scoped_refptr",
+    "//api:make_ref_counted",
+    "//api/video:encoded_image",
+    "//api/video:video_frame",
+    "//api/video:video_bitrate_allocation",
+    "//api/video_codecs:video_codecs_api",
+    "//modules/video_coding:video_codec_interface",
+    "//rtc_base:logging",
+    "//rtc_base:refcount",
+    "//testing/gtest",
+    "//test:test_main",
+    "//test:test_support",
+  ]
+  if (is_clang) {
+    suppressed_configs = [ "//build/config/clang:unsafe_buffers" ]
+    cflags = [ "-Wno-deprecated-declarations" ]
+  }
 }
