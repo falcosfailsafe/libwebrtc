@@ -69,6 +69,15 @@ Run "$root/build/src/buildtools/win/gn.exe" @('gen', 'src/out-x64-release', '--r
 $targets = @('-C', 'src/out-x64-release', 'libwebrtc', 'libwebrtc_cpp_api_unittests')
 if (Test-Path "$root/test/shared_encoder.test.cc") {
   $targets += 'discourse_shared_encoder_unittests'
+  # Compile our wrapper/adapter objects first. Otherwise Ninja may spend an
+  # hour building codecs before reporting a typo in our handful of sources.
+  $allTargets = & ninja.exe -C 'src/out-x64-release' -t targets all
+  if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate Ninja targets' }
+  $objects = @($allTargets | Where-Object {
+    $_ -match '^obj/libwebrtc/(libwebrtc|discourse_shared_encoder_unittests)/.+\.obj:'
+  } | ForEach-Object { ($_ -split ': ', 2)[0] })
+  if ($objects.Count -eq 0) { throw 'Custom wrapper compile targets missing' }
+  Run ninja.exe (@('-C', 'src/out-x64-release') + $objects)
 }
 Run ninja.exe $targets
 Run "$root/build/src/out-x64-release/libwebrtc_cpp_api_unittests.exe" @()
