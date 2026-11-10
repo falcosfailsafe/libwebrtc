@@ -341,7 +341,9 @@ void RTCPeerConnectionImpl::AddCandidate(const string mid, int mid_mline_index,
   webrtc::SdpParseError error;
   webrtc::IceCandidateInterface* candidate = webrtc::CreateIceCandidate(
       to_std_string(mid), mid_mline_index, to_std_string(cand_sdp), &error);
-  if (candidate != nullptr) rtc_peerconnection_->AddIceCandidate(candidate);
+  if (candidate != nullptr && rtc_peerconnection_) {
+    rtc_peerconnection_->AddIceCandidate(candidate);
+  }
 }
 
 void RTCPeerConnectionImpl::OnIceCandidate(
@@ -467,6 +469,7 @@ bool RTCPeerConnectionImpl::Initialize() {
 
 scoped_refptr<RTCDataChannel> RTCPeerConnectionImpl::CreateDataChannel(
     const string label, RTCDataChannelInit* dataChannelDict) {
+  if (!rtc_peerconnection_) return nullptr;
   webrtc::DataChannelInit init;
   init.id = dataChannelDict->id;
   init.maxRetransmits = dataChannelDict->maxRetransmits;
@@ -498,6 +501,10 @@ void RTCPeerConnectionImpl::SetLocalDescription(const string sdp,
                                                 const string type,
                                                 OnSetSdpSuccess success,
                                                 OnSetSdpFailure failure) {
+  if (!rtc_peerconnection_) {
+    if (failure) failure("peer connection is closed");
+    return;
+  }
   webrtc::SdpParseError error;
   std::optional<webrtc::SdpType> maybe_type =
       webrtc::SdpTypeFromString(to_std_string(type));
@@ -529,6 +536,10 @@ void RTCPeerConnectionImpl::SetRemoteDescription(const string sdp,
                                                  OnSetSdpSuccess success,
                                                  OnSetSdpFailure failure) {
   RTC_LOG(LS_INFO) << " Received session description :" << to_std_string(sdp);
+  if (!rtc_peerconnection_) {
+    if (failure) failure("peer connection is closed");
+    return;
+  }
   webrtc::SdpParseError error;
   webrtc::SdpParseError sdp_error;
   std::optional<webrtc::SdpType> maybe_type =
@@ -568,6 +579,10 @@ void RTCPeerConnectionImpl::SetRemoteDescription(const string sdp,
 
 void RTCPeerConnectionImpl::GetLocalDescription(OnGetSdpSuccess success,
                                                 OnGetSdpFailure failure) {
+  if (!rtc_peerconnection_) {
+    if (failure) failure("peer connection is closed");
+    return;
+  }
   auto local_description = rtc_peerconnection_->local_description();
   if (!local_description) {
     if (failure) {
@@ -585,6 +600,10 @@ void RTCPeerConnectionImpl::GetLocalDescription(OnGetSdpSuccess success,
 
 void RTCPeerConnectionImpl::GetRemoteDescription(OnGetSdpSuccess success,
                                                  OnGetSdpFailure failure) {
+  if (!rtc_peerconnection_) {
+    if (failure) failure("peer connection is closed");
+    return;
+  }
   auto remote_description = rtc_peerconnection_->remote_description();
   if (!remote_description) {
     if (failure) {
@@ -678,6 +697,7 @@ void RTCPeerConnectionImpl::Close() {
 }
 
 int RTCPeerConnectionImpl::AddStream(scoped_refptr<RTCMediaStream> stream) {
+  if (!rtc_peerconnection_) return -1;
   MediaStreamImpl* send_stream = static_cast<MediaStreamImpl*>(stream.get());
   webrtc::scoped_refptr<webrtc::MediaStreamInterface> rtc_media_stream =
       send_stream->rtc_media_stream();
@@ -697,6 +717,7 @@ int RTCPeerConnectionImpl::AddStream(scoped_refptr<RTCMediaStream> stream) {
 }
 
 int RTCPeerConnectionImpl::RemoveStream(scoped_refptr<RTCMediaStream> stream) {
+  if (!rtc_peerconnection_) return -1;
   MediaStreamImpl* send_stream = static_cast<MediaStreamImpl*>(stream.get());
 
   webrtc::scoped_refptr<webrtc::MediaStreamInterface> rtc_media_stream =
@@ -770,6 +791,7 @@ void RTCPeerConnectionImpl::GetStats(OnStatsCollectorSuccess success,
 scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
     scoped_refptr<RTCMediaTrack> track,
     scoped_refptr<RTCRtpTransceiverInit> init) {
+  if (!rtc_peerconnection_) return scoped_refptr<RTCRtpTransceiver>();
   RTCRtpTransceiverInitImpl* initImpl =
       static_cast<RTCRtpTransceiverInitImpl*>(init.get());
 
@@ -795,6 +817,7 @@ scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
 
 scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
     scoped_refptr<RTCMediaTrack> track) {
+  if (!rtc_peerconnection_) return scoped_refptr<RTCRtpTransceiver>();
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
       errorOr;
   std::string kind = to_std_string(track->kind());
@@ -815,6 +838,7 @@ scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
 
 scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
     RTCMediaType media_type) {
+  if (!rtc_peerconnection_) return scoped_refptr<RTCRtpTransceiver>();
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
       errorOr;
   if (media_type == RTCMediaType::AUDIO) {
@@ -831,6 +855,7 @@ scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
 
 scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
     RTCMediaType media_type, scoped_refptr<RTCRtpTransceiverInit> init) {
+  if (!rtc_peerconnection_) return scoped_refptr<RTCRtpTransceiver>();
   RTCRtpTransceiverInitImpl* initImpl =
       static_cast<RTCRtpTransceiverInitImpl*>(init.get());
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
@@ -851,6 +876,7 @@ scoped_refptr<RTCRtpTransceiver> RTCPeerConnectionImpl::AddTransceiver(
 
 scoped_refptr<RTCRtpSender> RTCPeerConnectionImpl::AddTrack(
     scoped_refptr<RTCMediaTrack> track, vector<string> streamIds) {
+  if (!rtc_peerconnection_) return scoped_refptr<RTCRtpSender>();
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> errorOr;
 
   std::vector<std::string> stream_ids;
@@ -875,6 +901,7 @@ scoped_refptr<RTCRtpSender> RTCPeerConnectionImpl::AddTrack(
 }
 
 bool RTCPeerConnectionImpl::RemoveTrack(scoped_refptr<RTCRtpSender> render) {
+  if (!rtc_peerconnection_) return false;
   RTCRtpSenderImpl* impl = static_cast<RTCRtpSenderImpl*>(render.get());
   webrtc::RTCError err =
       rtc_peerconnection_->RemoveTrackOrError(impl->rtc_rtp_sender());
@@ -886,6 +913,8 @@ bool RTCPeerConnectionImpl::RemoveTrack(scoped_refptr<RTCRtpSender> render) {
 
 vector<scoped_refptr<RTCRtpSender>> RTCPeerConnectionImpl::senders() {
   std::vector<scoped_refptr<RTCRtpSender>> vec;
+  // Close() releases the connection; late callers get an empty list.
+  if (!rtc_peerconnection_) return vec;
   for (auto item : rtc_peerconnection_->GetSenders()) {
     vec.push_back(new RefCountedObject<RTCRtpSenderImpl>(item));
   }
@@ -894,6 +923,8 @@ vector<scoped_refptr<RTCRtpSender>> RTCPeerConnectionImpl::senders() {
 
 vector<scoped_refptr<RTCRtpTransceiver>> RTCPeerConnectionImpl::transceivers() {
   std::vector<scoped_refptr<RTCRtpTransceiver>> vec;
+  // Close() releases the connection; late callers get an empty list.
+  if (!rtc_peerconnection_) return vec;
   for (auto item : rtc_peerconnection_->GetTransceivers()) {
     vec.push_back(new RefCountedObject<RTCRtpTransceiverImpl>(item));
   }
@@ -902,6 +933,8 @@ vector<scoped_refptr<RTCRtpTransceiver>> RTCPeerConnectionImpl::transceivers() {
 
 vector<scoped_refptr<RTCRtpReceiver>> RTCPeerConnectionImpl::receivers() {
   std::vector<scoped_refptr<RTCRtpReceiver>> vec;
+  // Close() releases the connection; late callers get an empty list.
+  if (!rtc_peerconnection_) return vec;
   for (auto item : rtc_peerconnection_->GetReceivers()) {
     vec.push_back(new RefCountedObject<RTCRtpReceiverImpl>(item));
   }
@@ -909,25 +942,30 @@ vector<scoped_refptr<RTCRtpReceiver>> RTCPeerConnectionImpl::receivers() {
 }
 
 RTCSignalingState RTCPeerConnectionImpl::signaling_state() {
+  if (!rtc_peerconnection_) return RTCSignalingStateClosed;
   return signaling_state_map[rtc_peerconnection_->signaling_state()];
 }
 
 RTCIceConnectionState RTCPeerConnectionImpl::ice_connection_state() {
+  if (!rtc_peerconnection_) return RTCIceConnectionStateClosed;
   return ice_connection_state_map[rtc_peerconnection_->ice_connection_state()];
 }
 
 RTCIceConnectionState
 RTCPeerConnectionImpl::standardized_ice_connection_state() {
+  if (!rtc_peerconnection_) return RTCIceConnectionStateClosed;
   return ice_connection_state_map[rtc_peerconnection_
                                       ->standardized_ice_connection_state()];
 }
 
 RTCPeerConnectionState RTCPeerConnectionImpl::peer_connection_state() {
+  if (!rtc_peerconnection_) return RTCPeerConnectionStateClosed;
   return peer_connection_state_map[rtc_peerconnection_
                                        ->peer_connection_state()];
 }
 
 RTCIceGatheringState RTCPeerConnectionImpl::ice_gathering_state() {
+  if (!rtc_peerconnection_) return RTCIceGatheringStateComplete;
   return ice_gathering_state_map[rtc_peerconnection_->ice_gathering_state()];
 }
 
